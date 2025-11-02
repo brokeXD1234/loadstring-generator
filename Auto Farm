@@ -1,0 +1,149 @@
+local Players=game:GetService("Players")
+local TweenService=game:GetService("TweenService")
+local UserInputService=game:GetService("UserInputService")
+local ReplicatedStorage=game:GetService("ReplicatedStorage")
+local task=task
+
+local player=Players.LocalPlayer
+local playerGui=player:WaitForChild("PlayerGui")
+local screenGui=script.Parent
+if not screenGui or not screenGui:IsA("ScreenGui") then
+	screenGui=Instance.new("ScreenGui",playerGui)
+	screenGui.Name="SideToggleMenuGui"
+	screenGui.ResetOnSpawn=false
+end
+
+local BTN_SIZE=UDim2.new(0,44,0,44)
+local BTN_POS=UDim2.new(0,12,0.5,-320)
+local DEST_POS=UDim2.new(0,64,0.5,-320)
+local MENU_SIZE=UDim2.new(0.35,0,0.4,0)
+local TWEEN=TweenInfo.new(0.18,Enum.EasingStyle.Quad,Enum.EasingDirection.Out)
+
+local function mk(name,class,parent,props)
+	local o=Instance.new(class);o.Name=name
+	for k,v in pairs(props or {}) do o[k]=v end
+	o.Parent=parent; return o
+end
+
+local function styleBtn(b,color,text,ts)
+	b.Size=BTN_SIZE; b.AnchorPoint=Vector2.new(0,0.5); b.Text=text
+	b.Font=Enum.Font.SourceSansBold; b.TextSize=ts or 20; b.TextColor3=Color3.new(1,1,1)
+	b.BackgroundColor3=color; b.BorderSizePixel=0; b.AutoButtonColor=true
+	if not b:FindFirstChildOfClass("UICorner") then mk("", "UICorner", b, {CornerRadius=UDim.new(1,0)}) end
+end
+
+local toggle=screenGui:FindFirstChild("SideToggleButton") or mk("SideToggleButton","TextButton",screenGui,{Position=BTN_POS})
+styleBtn(toggle,Color3.fromRGB(60,200,80),"≡",22)
+local destroy=screenGui:FindFirstChild("DestroyAllButton") or mk("DestroyAllButton","TextButton",screenGui,{Position=DEST_POS})
+styleBtn(destroy,Color3.fromRGB(200,40,40),"✖",18)
+
+local overlay=screenGui:FindFirstChild("MenuOverlay") or mk("MenuOverlay","Frame",screenGui,{Size=UDim2.new(1,0,1,0),BackgroundTransparency=1,Visible=false})
+local menu=overlay:FindFirstChild("CenterMenu") or mk("CenterMenu","Frame",overlay,{
+	Size=UDim2.new(0,0,0,0),
+	Position=UDim2.new(0.5,0,0.5,0),
+	AnchorPoint=Vector2.new(0.5,0.5),
+	BackgroundColor3=Color3.fromRGB(0,0,0)
+})
+if not menu:FindFirstChildOfClass("UICorner") then mk("", "UICorner", menu, {CornerRadius=UDim.new(0,8)}) end
+local header=menu:FindFirstChild("Header") or mk("Header","Frame",menu,{Size=UDim2.new(1,0,0,36),BackgroundTransparency=1})
+local title=header:FindFirstChild("Title") or mk("Title","TextLabel",header,{Size=UDim2.new(1,-80,1,0),Position=UDim2.new(0,12,0,0),BackgroundTransparency=1,Text="Menu",Font=Enum.Font.SourceSansBold,TextSize=18,TextColor3=Color3.new(1,1,1),TextXAlignment=Enum.TextXAlignment.Left})
+
+local closeBtn = header:FindFirstChild("CloseButton")
+if not closeBtn then
+	closeBtn = mk("CloseButton","TextButton",header,{Size=UDim2.new(0,28,0,28),Position=UDim2.new(1,-38,0.5,-14),Text="✖",Font=Enum.Font.SourceSansBold,TextSize=16,TextColor3=Color3.new(1,1,1)})
+end
+closeBtn.BackgroundColor3 = Color3.fromRGB(20,20,20)
+closeBtn.BorderSizePixel = 0
+if not closeBtn:FindFirstChildOfClass("UICorner") then mk("", "UICorner", closeBtn, {CornerRadius=UDim.new(0,6)}) end
+
+local body=menu:FindFirstChild("Body") or mk("Body","Frame",menu,{Size=UDim2.new(1,0,1,-36),Position=UDim2.new(0,0,0,36),BackgroundTransparency=1})
+local uiList = body:FindFirstChildOfClass("UIListLayout")
+if not uiList then uiList = mk("UIListLayout","UIListLayout",body,{}) end
+uiList.Padding = UDim.new(0,18)
+uiList.FillDirection = Enum.FillDirection.Vertical
+uiList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+uiList.VerticalAlignment = Enum.VerticalAlignment.Top
+
+local function addRow(name,labelText)
+	local row=mk(name.."Row","Frame",body,{Size=UDim2.new(0.95,0,0,44),BackgroundTransparency=1})
+	mk(name.."Label","TextLabel",row,{Size=UDim2.new(0.6,0,1,0),Position=UDim2.new(0,8,0,0),BackgroundTransparency=1,Text=labelText,Font=Enum.Font.SourceSansBold,TextSize=18,TextColor3=Color3.new(1,1,1),TextXAlignment=Enum.TextXAlignment.Left})
+	local t=mk(name.."Toggle","TextButton",row,{Size=UDim2.new(0,92,0,30),Position=UDim2.new(1,-100,0.5,-15),Text="OFF",Font=Enum.Font.SourceSansBold,TextSize=16,TextColor3=Color3.new(1,1,1),BackgroundColor3=Color3.fromRGB(200,30,30),BorderSizePixel=0})
+	mk("", "UICorner", t, {CornerRadius=UDim.new(0,8)})
+	return t
+end
+
+local autoToggle = body:FindFirstChild("AutoClickToggle") or addRow("AutoClick","Auto Click")
+-- second option label set to English as requested
+local upgradeToggle = body:FindFirstChild("AutoUpgradeToggle") or addRow("AutoUpgrade","Auto Upgrade")
+
+local isOpen=false
+local clickThread,upgThread=nil,nil
+local clickOn,upgOn=false,false
+
+local function openMenu()
+	if isOpen then return end
+	isOpen=true; overlay.Visible=true
+	TweenService:Create(menu,TWEEN,{Size=MENU_SIZE}):Play()
+	toggle.Text="≡"; toggle.BackgroundColor3=Color3.fromRGB(34,170,60)
+end
+local function closeMenu()
+	if not isOpen then return end
+	isOpen=false
+	local t=TweenService:Create(menu,TWEEN,{Size=UDim2.new(0,0,0,0)}); t:Play()
+	t.Completed:Connect(function() overlay.Visible=false end)
+	toggle.Text="≡"; toggle.BackgroundColor3=Color3.fromRGB(60,200,80)
+end
+
+local function upd(t,st) if not t then return end t.Text = st and "ON" or "OFF"; t.BackgroundColor3 = st and Color3.fromRGB(60,200,80) or Color3.fromRGB(200,30,30) end
+
+local function startClick()
+	if clickThread then return end
+	clickThread = coroutine.create(function()
+		while clickOn do
+			pcall(function()
+				game:GetService("ReplicatedStorage").Packages.Knit.Services.ToolService.RE.onClick:FireServer()
+			end)
+			task.wait(0.001)
+		end
+		clickThread=nil
+	end); coroutine.resume(clickThread)
+end
+local function stopClick() clickOn=false end
+
+local function startUpgrade()
+	if upgThread then return end
+	upgThread = coroutine.create(function()
+		while upgOn do
+			pcall(function()
+				function getNil(n,c) for _,v in pairs(getnilinstances()) do if v.ClassName==c and v.Name==n then return v end end end
+				local args={[1]=nil}
+				game:GetService("ReplicatedStorage").Packages.Packet.RemoteEvent:FireServer(unpack(args))
+			end)
+			task.wait(0.001)
+		end
+		upgThread=nil
+	end); coroutine.resume(upgThread)
+end
+local function stopUpgrade() upgOn=false end
+
+autoToggle.MouseButton1Click:Connect(function()
+	clickOn = not clickOn; upd(autoToggle,clickOn)
+	if clickOn then startClick() else stopClick() end
+end)
+upgradeToggle.MouseButton1Click:Connect(function()
+	upgOn = not upgOn; upd(upgradeToggle,upgOn)
+	if upgOn then startUpgrade() else stopUpgrade() end
+end)
+
+toggle.MouseButton1Click:Connect(function() if isOpen then closeMenu() else openMenu() end end)
+destroy.MouseButton1Click:Connect(function()
+	isOpen=false; clickOn=false; upgOn=false
+	if overlay.Visible then closeMenu() end
+	task.wait(0.05)
+	if screenGui and screenGui.Parent then screenGui:Destroy() end
+end)
+
+UserInputService.InputBegan:Connect(function(input,processed)
+	if processed then return end
+	if input.KeyCode==Enum.KeyCode.Escape and isOpen then closeMenu() end
+end)
